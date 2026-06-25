@@ -701,6 +701,80 @@ footer{
   *,.reveal,.hero-orb,.node{transition:none!important;animation:none!important}
   .reveal{opacity:1;transform:none}
 }
+
+/* ━━ ECG HEARTBEAT LINE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+#rms-ecg{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  pointer-events:none;
+  z-index:1;
+  opacity:1;
+}
+@media(prefers-reduced-motion:reduce){
+  #rms-ecg{display:none}
+}
+
+/* ━━ COOKIE BANNER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+#rms-cookie{
+  position:fixed;bottom:24px;left:50%;
+  transform:translateX(-50%);
+  z-index:9999;
+  display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+  width:calc(100% - 40px);max-width:680px;
+  background:rgba(9,20,20,.93);
+  border:1px solid rgba(11,255,229,.18);
+  border-radius:16px;
+  padding:16px 20px;
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  box-shadow:0 8px 40px rgba(0,0,0,.55);
+  transition:opacity .4s ease,transform .4s ease;
+}
+#rms-cookie.rms-hidden{
+  opacity:0;
+  transform:translateX(-50%) translateY(16px);
+  pointer-events:none;
+}
+.rms-ck-text{
+  flex:1;min-width:200px;
+  font-size:13px;line-height:1.55;color:#8ABABA;
+}
+.rms-ck-text strong{
+  display:block;color:#E8F0F0;
+  font-size:13.5px;font-weight:600;margin-bottom:3px;
+}
+.rms-ck-text a{
+  color:#0BFFE5;
+  text-decoration:underline;text-underline-offset:2px;
+}
+.rms-ck-btns{display:flex;gap:10px;flex-shrink:0}
+.rms-ck-accept{
+  background:#0BFFE5;color:#000;
+  font-size:13px;font-weight:700;
+  padding:9px 22px;border-radius:8px;
+  border:none;cursor:pointer;
+  font-family:'Inter',sans-serif;
+  letter-spacing:.01em;
+  transition:opacity .2s,transform .15s;
+}
+.rms-ck-accept:hover{opacity:.85;transform:translateY(-1px)}
+.rms-ck-decline{
+  background:transparent;color:#8ABABA;
+  font-size:13px;font-weight:500;
+  padding:9px 16px;border-radius:8px;
+  border:1px solid rgba(11,255,229,.18);
+  cursor:pointer;font-family:'Inter',sans-serif;
+  transition:color .2s,border-color .2s;
+}
+.rms-ck-decline:hover{color:#E8F0F0;border-color:rgba(11,255,229,.38)}
+@media(max-width:480px){
+  #rms-cookie{flex-direction:column;gap:14px;bottom:16px}
+  .rms-ck-btns{width:100%}
+  .rms-ck-accept,.rms-ck-decline{flex:1;text-align:center}
+}
+
 </style>
 </head>
 <body>
@@ -733,6 +807,7 @@ footer{
 <section class="hero" id="top">
   <div class="hero-grid"></div>
   <div class="hero-orb"></div>
+  <canvas id="rms-ecg" aria-hidden="true"></canvas>
   <div class="hero-nodes">
     <span class="node"></span>
     <span class="node"></span>
@@ -1311,6 +1386,259 @@ document.addEventListener('keydown',function(e){
     doSubmit();
   }
 });
+
+/* ─── ECG HEARTBEAT ──────────────────────────────────────────────── */
+(function(){
+  var cvs = document.getElementById('rms-ecg');
+  if(!cvs) return;
+  if(window.matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+
+  var ctx  = cvs.getContext('2d');
+  var W, H, MID;
+
+  // ── Colour palette ──────────────────────────────────────────
+  // Primary line: site teal  rgba(11,255,229,α)
+  // Accent flash: deep red   rgba(220,50,60,α)   — ECG alert colour
+  var TEAL  = 'rgba(11,255,229,';
+  var RED   = 'rgba(220,50,60,';
+
+  // ── ECG waveform shape (normalised 0-1 x, -1..1 y) ──────────
+  // One full PQRST complex — medically accurate proportions
+  var WAVE = [
+    // flat baseline
+    [0,      0],
+    // P wave (atrial depol.)
+    [0.06,   0],
+    [0.09,   0.12],
+    [0.12,   0.15],
+    [0.15,   0.12],
+    [0.18,   0],
+    // PR segment
+    [0.22,   0],
+    // Q dip
+    [0.25,  -0.12],
+    // R spike  ← tallest, red-tipped
+    [0.28,   1.00],
+    // S dip
+    [0.31,  -0.18],
+    // ST segment
+    [0.37,   0],
+    // T wave (ventricular repol.)
+    [0.44,   0.02],
+    [0.50,   0.28],
+    [0.56,   0.30],
+    [0.62,   0.14],
+    [0.68,   0],
+    // flat baseline to end
+    [1.00,   0]
+  ];
+
+  // ── Resize canvas to fill hero ───────────────────────────────
+  function resize(){
+    var dpr = Math.min(window.devicePixelRatio||1,2);
+    W = cvs.offsetWidth;
+    H = cvs.offsetHeight;
+    cvs.width  = W * dpr;
+    cvs.height = H * dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    MID = H * 0.52; // slightly below vertical centre
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ── Scrolling state ──────────────────────────────────────────
+  // We render 2.5 full waveform cycles across the screen width.
+  // A "scroll offset" advances each frame so the trace scrolls right→left.
+  var CYCLES   = 2.5;          // waveform repetitions visible
+  var SPEED    = 0.55;          // px per frame  (feel like ~75 mm/s paper speed)
+  var AMPLITUDE= 0;            // set in resize derivative
+  var offset   = 0;            // scroll position in px
+  var sparkPhase = 0;           // spark position [0..1] across screen width
+
+  // ── Catmull-Rom interpolation through wave points ────────────
+  function catmullPoint(p0,p1,p2,p3,t){
+    var t2=t*t, t3=t2*t;
+    return 0.5*((2*p1[1])+(-p0[1]+p2[1])*t
+      +(2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2
+      +(-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3);
+  }
+
+  // ── Sample smooth waveform at normalised x ∈ [0,1] ──────────
+  function sampleWave(nx){
+    nx = nx - Math.floor(nx); // wrap
+    var len=WAVE.length;
+    for(var i=0;i<len-1;i++){
+      if(nx>=WAVE[i][0] && nx<=WAVE[i+1][0]){
+        var span=WAVE[i+1][0]-WAVE[i][0];
+        var t=(nx-WAVE[i][0])/(span||0.001);
+        var p0=WAVE[Math.max(0,i-1)];
+        var p1=WAVE[i];
+        var p2=WAVE[Math.min(len-1,i+1)];
+        var p3=WAVE[Math.min(len-1,i+2)];
+        return catmullPoint(p0,p1,p2,p3,t);
+      }
+    }
+    return 0;
+  }
+
+  // ── Main draw ────────────────────────────────────────────────
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    AMPLITUDE = H * 0.066; // 6.6% of hero height (70% reduction from original 22%)
+
+    // Advance scroll
+    offset = (offset + SPEED) % (W / CYCLES);
+
+    var STEPS = W * 2; // sub-pixel resolution
+
+    // ── Spark: travels along the ECG line continuously ─────────
+    // sparkPhase is a normalised position [0,1] across screen width
+    // It runs at a faster independent speed so it laps the scroll
+    sparkPhase = (sparkPhase + 0.0045) % 1;
+    var sparkPx    = sparkPhase * W;
+    var sparkWaveX = ((sparkPx + offset) / W) * CYCLES;
+    var sparkWy    = sampleWave(sparkWaveX);
+    var sparkPy    = MID - sparkWy * AMPLITUDE;
+
+    // ── 1. Dim trailing glow (drawn first, wide stroke) ────────
+    ctx.save();
+    ctx.beginPath();
+    for(var s=0;s<=STEPS;s++){
+      var px = (s/STEPS)*W;
+      var phase = ((px + offset) / W) * CYCLES;
+      var wy    = sampleWave(phase);
+      var py    = MID - wy * AMPLITUDE;
+      if(s===0) ctx.moveTo(px,py);
+      else       ctx.lineTo(px,py);
+    }
+    ctx.strokeStyle = TEAL+'0.06)';
+    ctx.lineWidth   = 18;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    ctx.stroke();
+    ctx.restore();
+
+    // ── 2. Main line — teal with red on R-spike ─────────────────
+    ctx.save();
+    ctx.lineCap='round'; ctx.lineJoin='round';
+
+    var segments=[]; var cur={color:TEAL,pts:[]};
+    for(var s=0;s<=STEPS;s++){
+      var px=(s/STEPS)*W;
+      var phase=((px+offset)/W)*CYCLES;
+      var wy=sampleWave(phase);
+      var py=MID - wy*AMPLITUDE;
+      var isRed=(wy>0.70);
+      if(isRed !== (cur.color===RED)){
+        if(cur.pts.length>0) segments.push(cur);
+        cur={color: isRed ? RED : TEAL, pts:[]};
+        if(segments.length>0){
+          var last=segments[segments.length-1];
+          cur.pts.push(last.pts[last.pts.length-1]);
+        }
+      }
+      cur.pts.push([px,py]);
+    }
+    segments.push(cur);
+
+    for(var sg=0;sg<segments.length;sg++){
+      var seg=segments[sg];
+      if(seg.pts.length<2) continue;
+      ctx.beginPath();
+      ctx.moveTo(seg.pts[0][0],seg.pts[0][1]);
+      for(var k=1;k<seg.pts.length;k++) ctx.lineTo(seg.pts[k][0],seg.pts[k][1]);
+      if(seg.color===RED){
+        ctx.strokeStyle=RED+'0.88)';
+        ctx.lineWidth=2.2;
+        ctx.shadowColor=RED+'0.5)';
+        ctx.shadowBlur=10;
+      } else {
+        ctx.strokeStyle=TEAL+'0.72)';
+        ctx.lineWidth=1.6;
+        ctx.shadowColor=TEAL+'0.25)';
+        ctx.shadowBlur=8;
+      }
+      ctx.stroke();
+      ctx.shadowBlur=0;
+    }
+    ctx.restore();
+
+    // ── 3. Spark — glowing dot running along the ECG curve ──────
+    ctx.save();
+    // Outer halo (large, very faint)
+    var halo = ctx.createRadialGradient(sparkPx,sparkPy,0,sparkPx,sparkPy,22);
+    halo.addColorStop(0, TEAL+'0.22)');
+    halo.addColorStop(1, TEAL+'0)');
+    ctx.beginPath();
+    ctx.arc(sparkPx,sparkPy,22,0,Math.PI*2);
+    ctx.fillStyle=halo;
+    ctx.fill();
+    // Mid glow
+    var mid = ctx.createRadialGradient(sparkPx,sparkPy,0,sparkPx,sparkPy,8);
+    mid.addColorStop(0, TEAL+'0.7)');
+    mid.addColorStop(1, TEAL+'0)');
+    ctx.beginPath();
+    ctx.arc(sparkPx,sparkPy,8,0,Math.PI*2);
+    ctx.fillStyle=mid;
+    ctx.fill();
+    // Hard bright core
+    ctx.beginPath();
+    ctx.arc(sparkPx,sparkPy,2.5,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,0.95)';
+    ctx.shadowColor=TEAL+'0.9)';
+    ctx.shadowBlur=12;
+    ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.restore();
+
+    // ── 4. Horizontal baseline ──────────────────────────────────
+    ctx.beginPath();
+    ctx.moveTo(0,MID); ctx.lineTo(W,MID);
+    ctx.strokeStyle=TEAL+'0.06)';
+    ctx.lineWidth=1;
+    ctx.stroke();
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+/* ─── COOKIE BANNER ─────────────────────────────────────────────────── */
+function rmsCookieInit(){
+  var KEY='rms_cookie_v1';
+  var b=document.getElementById('rms-cookie');
+  if(!b) return;
+  if(localStorage.getItem(KEY)) return;
+  setTimeout(function(){ b.style.display='flex'; }, 900);
+}
+function rmsCookieSet(v){
+  localStorage.setItem('rms_cookie_v1',v);
+  var b=document.getElementById('rms-cookie');
+  if(!b) return;
+  b.classList.add('rms-hidden');
+  setTimeout(function(){ b.style.display='none'; },450);
+}
+// Fire after DOM is ready — works whether script is mid-page or at end
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded', rmsCookieInit);
+} else {
+  rmsCookieInit();
+}
+
 </script>
+
+<!-- ████ COOKIE BANNER ████ -->
+<div id="rms-cookie" role="dialog" aria-label="Cookie preferences" style="display:none">
+  <div class="rms-ck-text">
+    <strong>This site uses cookies</strong>
+    We use essential cookies to keep the site running and optional analytics to understand how visitors interact with Readmissa. <a href="#" onclick="return false">Privacy&nbsp;Policy</a>.
+  </div>
+  <div class="rms-ck-btns">
+    <button class="rms-ck-decline" onclick="rmsCookieSet('declined')">Decline</button>
+    <button class="rms-ck-accept"  onclick="rmsCookieSet('accepted')">Accept&nbsp;all</button>
+  </div>
+</div>
+
 </body>
 </html>
