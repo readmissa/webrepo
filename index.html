@@ -435,7 +435,7 @@ nav.scrolled{border-color:var(--border)}
 
 /* Phone device */
 .phone-device{
-  width:260px;height:530px;flex-shrink:0;
+  width:260px;height:562px;flex-shrink:0;
   background:#0D0D0D;
   border-radius:38px;
   border:1.5px solid rgba(255,255,255,.12);
@@ -446,12 +446,6 @@ nav.scrolled{border-color:var(--border)}
   overflow:hidden;
   position:relative;
 }
-.phone-notch{
-  position:absolute;top:0;left:50%;transform:translateX(-50%);
-  width:90px;height:26px;
-  background:#0D0D0D;border-radius:0 0 16px 16px;
-  z-index:10;
-}
 .phone-screen{
   width:100%;height:100%;overflow:hidden;
   position:relative;
@@ -460,7 +454,7 @@ nav.scrolled{border-color:var(--border)}
   width:390px;height:844px;border:none;
   transform-origin:top left;
   transform:scale(0.666);
-  pointer-events:none;
+  pointer-events:fill;
 }
 
 /* Info panel beside phone */
