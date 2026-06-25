@@ -1239,7 +1239,7 @@ function switchTab(tab){
   document.querySelectorAll('.reveal').forEach(function(el){io.observe(el)});
 })();
 
-var FORMSPREE_ID = 'https://formspree.io/f/mojoeero';
+var FORMSPREE_ID = 'mojoeero';
 
 // Form submit
 function doSubmit(){
@@ -1266,8 +1266,8 @@ function doSubmit(){
   });
   if(!ok)return;
 
-  if(FORMSPREE_ID==='https://formspree.io/f/mojoeero'){
-    alert('Formspree ID not set yet.\n\nOpen the landing page HTML, find FORMSPREE_ID = \'https://formspree.io/f/mojoeero\' and replace YOUR_FORMSPREE_ID with your real Formspree form ID.\n\nGet one free at formspree.io');
+    if(FORMSPREE_ID==='YOUR_FORMSPREE_ID'){
+        alert('Formspree ID not set yet.\n\nOpen the landing page HTML, find FORMSPREE_ID = \'YOUR_FORMSPREE_ID\' and replace YOUR_FORMSPREE_ID with your real Formspree form ID.\n\nGet one free at formspree.io');
     return;
   }
 
